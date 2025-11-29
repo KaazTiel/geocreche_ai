@@ -1,0 +1,10 @@
+pandas
+geopandas
+shapely
+osmnx
+networkx
+psycopg2-binary
+plotly
+scikit-learn
+statsmodels
+python-dotenv
