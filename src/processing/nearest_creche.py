@@ -5,7 +5,6 @@ import osmnx as ox
 import pandas as pd
 
 def _process_chunk(args):
-    # compatibilidade com seu antigo process_chunk
     G, maes_chunk, creches_nodes = args
     resultados = []
     for idx, row in maes_chunk.iterrows():

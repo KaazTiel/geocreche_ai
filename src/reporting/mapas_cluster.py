@@ -2,38 +2,78 @@ import pandas as pd
 import geopandas as gpd
 import plotly.graph_objects as go
 import plotly.express as px
-from sklearn.cluster import KMeans
 from pathlib import Path
+from sklearn.cluster import KMeans
 
 from src.utils import config
-from src.processing.spatial_join import adicionar_bairro  # ⬅️ SUA FUNÇÃO NOVA
-
+from src.processing.spatial_join import adicionar_bairro
 from src.utils.env_loader import MAPBOX_TOKEN
 
+
 # ======================================================
-# CLUSTERS
+# PROCESSING - ENSURE NEIGHBORHOODS
 # ======================================================
-def gerar_mapa_clusters(df_maes: pd.DataFrame, df_creches: pd.DataFrame) -> str:
-    """Gera o mapa de clusters e retorna HTML."""
 
-    # --------------------------
-    # GARANTIR BAIRROS
-    # --------------------------
-    if "neighborhood" not in df_maes.columns:
-        df_maes = adicionar_bairro(df_maes, config.BAIRROS_GEOJSON)
-        # garante string normal p/ pandas
-        if hasattr(df_maes, "to_pandas"):
-            df_maes = df_maes.to_pandas()
+def _garantir_bairros(df: pd.DataFrame, bairros_geojson: Path) -> pd.DataFrame:
+    """
+    Ensures the `neighborhood` column exists, executing a spatial join if necessary.
+    """
+    if "neighborhood" not in df.columns:
+        df = adicionar_bairro(df, bairros_geojson)
 
-    # --------------------------
-    # CLUSTERS
-    # --------------------------
-    kmeans = KMeans(n_clusters=3, random_state=0)
-    df_maes["cluster"] = kmeans.fit_predict(df_maes[["distancia_metros"]])
+        # Convert from cudf/gdf GeoDataFrame to pandas if necessary
+        if hasattr(df, "to_pandas"):
+            df = df.to_pandas()
 
+    return df
+
+
+# ======================================================
+# PROCESSING - CLUSTERS
+# ======================================================
+
+def _calcular_clusters(        df: pd.DataFrame, 
+                                n_clusters: int = 3, 
+                                col: str = "distancia_metros") -> pd.DataFrame:
+    
+    kmeans = KMeans(n_clusters=n_clusters, random_state=0)
+    df["cluster"] = kmeans.fit_predict(df[[col]])
     centers = kmeans.cluster_centers_.flatten()
     order = centers.argsort()
-    df_maes["cluster_rank"] = df_maes["cluster"].apply(lambda x: order.tolist().index(x))
+    df["cluster_rank"] = df["cluster"].apply(lambda x: order.tolist().index(x))
+    return df
+
+def _calcular_media_por_bairro(df: pd.DataFrame,
+                               col_group: str = "neighborhood",
+                               col_value: str = "distancia_metros") -> pd.DataFrame:
+    
+    media = df.groupby(col_group)[col_value].mean().reset_index()
+    media.columns = [col_group, "media_distancia"]
+    return media
+
+
+# ======================================================
+# CLUSTER MAP
+# ======================================================
+
+def gerar_mapa_clusters(df_maes: pd.DataFrame, df_creches: pd.DataFrame) -> str:
+    """
+    Generates the cluster map and returns HTML.
+    """
+
+    # --------------------------
+    # PROCESSING
+    # --------------------------
+
+    # Ensure neighborhoods
+    df_maes = _garantir_bairros(df_maes, config.BAIRROS_GEOJSON)
+
+    # Calculate clusters
+    df_maes = _calcular_clusters(df_maes, n_clusters=3, col="distancia_metros")
+
+    # --------------------------
+    # VISUALIZATION
+    # --------------------------
 
     colors = ["green", "orange", "red"]
 
@@ -45,11 +85,10 @@ def gerar_mapa_clusters(df_maes: pd.DataFrame, df_creches: pd.DataFrame) -> str:
         color_continuous_scale=colors,
         hover_data=["distancia_metros", "neighborhood"],
         mapbox_style="carto-positron"
+        # ❗️ REMOVED: name="Clusters" (does not exist in PX)
     )
 
-    # --------------------------
-    # CRECHES
-    # --------------------------
+    # Daycare centers
     fig.add_scattermapbox(
         lat=df_creches["Latitude"],
         lon=df_creches["Longitude"],
@@ -57,41 +96,52 @@ def gerar_mapa_clusters(df_maes: pd.DataFrame, df_creches: pd.DataFrame) -> str:
         marker=dict(size=15, symbol="circle", color="blue"),
         hovertext=df_creches["Nome"],
         hoverinfo="text",
-        name="Creches"
+        name="Daycare Centers"
     )
 
     fig.update_layout(
-        title="Clusters de Prioridade de Distância + Localização das Creches",
+        title="Distance Priority Clusters",
         mapbox_accesstoken=MAPBOX_TOKEN,
+        width=1000,   # Largura fixa em pixels
+        height=800,   # Altura fixa em pixels
         mapbox=dict(
             center=dict(lat=df_maes.lat.mean(), lon=df_maes.lon.mean()),
             zoom=12
         )
+        
     )
 
     return fig.to_html(full_html=False, include_plotlyjs="cdn")
 
 
-
 # ======================================================
-# MAPA TEMÁTICO POR BAIRRO
+# THEMATIC MAP BY NEIGHBORHOOD
 # ======================================================
-def gerar_mapa_tematico(df_maes: pd.DataFrame, bairros_geojson: Path, df_creches: pd.DataFrame) -> str:
-    """Gera o mapa temático por bairro e retorna HTML."""
+
+def gerar_mapa_tematico(df_maes: pd.DataFrame,
+                        bairros_geojson: Path,
+                        df_creches: pd.DataFrame) -> str:
+    """
+    Generates the thematic map by neighborhood and returns HTML.
+    """
 
     # --------------------------
-    # GARANTIR BAIRROS
+    # PROCESSING
     # --------------------------
-    if "neighborhood" not in df_maes.columns:
-        df_maes = adicionar_bairro(df_maes, bairros_geojson)
-        if hasattr(df_maes, "to_pandas"):
-            df_maes = df_maes.to_pandas()
+
+    # Ensure neighborhoods
+    df_maes = _garantir_bairros(df_maes, bairros_geojson)
+
+    # Calculate averages
+    media = _calcular_media_por_bairro(
+        df_maes,
+        col_group="neighborhood",
+        col_value="distancia_metros"
+    )
 
     # --------------------------
-    # MÉDIA POR BAIRRO
+    # GEOMETRY
     # --------------------------
-    media = df_maes.groupby("neighborhood")["distancia_metros"].mean().reset_index()
-    media.columns = ["neighborhood", "media_distancia"]
 
     bairros = gpd.read_file(bairros_geojson).to_crs(4326)
     bairros["neighborhood"] = bairros["NM_BAIRRO"].str.strip()
@@ -100,8 +150,9 @@ def gerar_mapa_tematico(df_maes: pd.DataFrame, bairros_geojson: Path, df_creches
     bairros_json = bairros.__geo_interface__
 
     # --------------------------
-    # CHOROPLETH
+    # VISUALIZATION
     # --------------------------
+
     fig = go.Figure(go.Choroplethmapbox(
         geojson=bairros_json,
         locations=bairros["neighborhood"],
@@ -110,11 +161,10 @@ def gerar_mapa_tematico(df_maes: pd.DataFrame, bairros_geojson: Path, df_creches
         marker_opacity=0.7,
         marker_line_width=1,
         featureidkey="properties.neighborhood",
+        name="Average Distance",
     ))
 
-    # --------------------------
-    # CRECHES
-    # --------------------------
+    # Daycare centers
     fig.add_scattermapbox(
         lat=df_creches["Latitude"],
         lon=df_creches["Longitude"],
@@ -122,7 +172,7 @@ def gerar_mapa_tematico(df_maes: pd.DataFrame, bairros_geojson: Path, df_creches
         marker=dict(size=15, symbol="circle", color="blue"),
         hovertext=df_creches["Nome"],
         hoverinfo="text",
-        name="Creches"
+        name="Daycare Centers"
     )
 
     fig.update_layout(
@@ -132,7 +182,9 @@ def gerar_mapa_tematico(df_maes: pd.DataFrame, bairros_geojson: Path, df_creches
             center=dict(lat=df_maes.lat.mean(), lon=df_maes.lon.mean()),
             zoom=12
         ),
-        title="Mapa Temático – Média de Distância por Bairro + Creches"
+        width=1000,   # Largura fixa em pixels
+        height=800,   # Altura fixa em pixels
+        title="Thematic Map – Average Distance by Neighborhood"
     )
 
     return fig.to_html(full_html=False, include_plotlyjs=False)

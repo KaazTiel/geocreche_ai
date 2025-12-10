@@ -1,6 +1,9 @@
 import os
+import sys
+import time
 import pandas as pd
 import geopandas as gpd
+import argparse
 
 from src.utils import config
 
@@ -34,64 +37,153 @@ from src.reporting.plots_previsao import gerar_previsoes_bairros
 from src.reporting.report_builder import gerar_relatorio_final
 
 
+# ---- Função auxiliar para tempo ----
+def log_tempo(inicio, mensagem):
+    dur = time.time() - inicio
+
+    mins = int(dur // 60)
+    secs = dur % 60  # segundos com fração
+    secs_fmt = f"{secs:05.2f}"
+
+    if mins > 0:
+        print(f"[OK] {mensagem} em {mins} min {secs_fmt}s.")
+    else:
+        print(f"[OK] {mensagem} em {secs_fmt}s.")
+
+
+def verificar_limite_processos(valor):
+    """Verifica se o valor excede o limite e aborta se sim."""
+    max_procs = os.cpu_count() or 1
+
+    if valor > max_procs:
+        print("\n[ERRO] Número de processos solicitado excede o limite permitido.")
+        print(f"       Solicitado: {valor}")
+        print(f"       Máximo permitido: {max_procs}\n")
+        print("       Execução abortada para evitar travamento do sistema.\n")
+        sys.exit(1)
+
+    if valor < 1:
+        print("\n[ERRO] Número de processos inválido (<1).")
+        print("       Execução abortada.\n")
+        sys.exit(1)
+
+
 def pipeline_maes():
 
     if os.path.exists(config.MAES_SAIDA):
         print(f"[INFO] {config.MAES_SAIDA} já existe. Pulando processamento.")
         return pd.read_csv(config.MAES_SAIDA)
 
-    print("[INFO] Executando pipeline completa de mães...")
+    print("\n--- ETAPA 1: PIPELINE DAS MÃES ---")
+    t0 = time.time()
 
+    # 1. Carregar dados do Postgres
+    t = time.time()
     df = carregar_prenatals_postgis(DB_CONFIG)
-    df_all, df_validos = aplicar_filtro_validade(df, DATA_CUTO, IDADE_MAX_DIAS)
+    log_tempo(t, "Carregamento de dados do Postgres")
+
+    # 2. Filtrar validade (idade, etc.)
+    t = time.time()
+    _, df_validos = aplicar_filtro_validade(df, DATA_CUTO, IDADE_MAX_DIAS)
+    log_tempo(t, "Aplicação de filtros de validade")
+
+    # 3. Preparar mães para geoprocessamento
+    t = time.time()
     maes_gdf = preparar_maes_para_osm(df_validos)
+    log_tempo(t, "Preparação de geodados das mães")
 
+    # 4. Carregar creches
+    t = time.time()
     creches_gdf = carregar_creches()
-    municipio_gdf, poligono = carregar_municipio()
+    log_tempo(t, "Carregamento de dados das creches")
 
+    # 5. Carregar polígono e grafo OSM
+    t = time.time()
+    _, poligono = carregar_municipio()
     G = carregar_grafo_osm(poligono, network_type="walk")
+    log_tempo(t, "Carregamento do grafo OSM")
 
+    # 6. Calcular creche mais próxima
+    t = time.time()
     res_df = calcular_creche_mais_proxima(G, maes_gdf, creches_gdf, num_processos=NUM_PROCESSOS)
+    log_tempo(t, "Cálculo de creche mais próxima (network)")
 
+    # 7. Salvar resultado
+    t = time.time()
     res_df.to_csv(config.MAES_SAIDA, index=False)
-    print(f"[OK] Resultado salvo em {config.MAES_SAIDA}")
+    log_tempo(t, "Salvamento do arquivo final")
+
+    log_tempo(t0, "ETAPA 1 — Pipeline das mães concluída total")
 
     return res_df
 
 
-
 def pipeline_mapas(df_maes):
-    """
-    Gera os mapas HTML (clusters e temático).
-    """
-    print("[INFO] Gerando mapas...")
+    print("\n--- ETAPA 2: MAPAS ---")
+    t0 = time.time()
 
+    # 1. carregar creches
+    t = time.time()
     df_creches = pd.read_csv(config.CRECHES_CSV)
+    log_tempo(t, "Carregamento de creches para mapas")
 
-    # clusters
+    # 2. mapa de clusters
+    t = time.time()
     html_clusters = gerar_mapa_clusters(df_maes, df_creches)
     with open(config.MAPAS_CLUSTERS_DIR / "clusters.html", "w", encoding="utf-8") as f:
         f.write(html_clusters)
+    log_tempo(t, "Geração de mapa de clusters")
 
-    # temático
+    # 3. mapa temático
+    t = time.time()
     html_tematico = gerar_mapa_tematico(df_maes, config.BAIRROS_GEOJSON, df_creches)
     with open(config.MAPAS_TEMATICOS_DIR / "tematico.html", "w", encoding="utf-8") as f:
         f.write(html_tematico)
+    log_tempo(t, "Geração de mapa temático")
 
-    print("[OK] Mapas gerados.")
+    log_tempo(t0, "ETAPA 2 — Mapas concluída total")
 
 
 def pipeline_previsoes():
-    """
-    Gera os gráficos forecast ARIMA de todos os bairros.
-    """
-    print("[INFO] Gerando previsões (ARIMA)...")
+    print("\n--- ETAPA 3: PREVISÕES ---")
+    t0 = time.time()
+
+    t = time.time()
     gerar_previsoes_bairros()
-    print("[OK] Previsões geradas.")
+    log_tempo(t, "Geração dos gráficos ARIMA")
+
+    log_tempo(t0, "ETAPA 3 — Previsões concluída total")
 
 
 def main():
     print("\n========== PIPELINE GEO CRECHE AI ==========")
+
+    # -------------------------------------------------
+    # CLI: permitir sobrescrever NUM_PROCESSOS
+    # -------------------------------------------------
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-p", "--processos",
+        type=int,
+        help="Número de processos para paralelismo (sobrescreve o .env)"
+    )
+    args = parser.parse_args()
+
+    # Importa variável global
+    global NUM_PROCESSOS
+
+    # Se usuário passou -p
+    if args.processos is not None:
+        verificar_limite_processos(args.processos)
+        NUM_PROCESSOS = args.processos
+    else:
+        verificar_limite_processos(NUM_PROCESSOS)
+
+    print(f"[INFO] Número de processos configurado: {NUM_PROCESSOS}")
+
+    # -------------------------------------------------
+    # PIPELINE
+    # -------------------------------------------------
 
     # 1. Pipeline das mães
     df_maes = pipeline_maes()
@@ -103,7 +195,10 @@ def main():
     pipeline_previsoes()
 
     # 4. Relatório final
+    print("\n--- ETAPA 4: RELATÓRIO ---")
+    t = time.time()
     gerar_relatorio_final()
+    log_tempo(t, "Relatório final gerado")
 
     print("\n[✔] Pipeline completa gerada!")
     print(f"Relatório final: {config.OUTPUT_DIR / 'relatorio_final.html'}\n")

@@ -43,3 +43,5 @@ env/
 # -------------------------
 Thumbs.db
 .DS_Store
+
+db_settings.json

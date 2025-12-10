@@ -1,196 +1,244 @@
 import os
+from pathlib import Path
 from src.utils.config import OUTPUT_DIR, GRAFICOS_PREV_DIR, MAPAS_CLUSTERS_DIR, MAPAS_TEMATICOS_DIR
 
 OUTPUT_RELATORIO = OUTPUT_DIR / "relatorio_final.html"
 
-
 def _carregar_arquivo_possiveis(dir_path, candidates):
     """
-    Tenta carregar o primeiro arquivo existente da lista `candidates`
-    dentro de dir_path. Retorna (nome_sem_ext, conteudo) ou None se nada achar.
+    Tries to load the first existing file from the `candidates` list
+    inside dir_path. Returns (name_without_ext, content) or None if nothing is found.
     """
+    if not dir_path.exists():
+        return None
+        
     for name in candidates:
         p = dir_path / name
         if p.exists():
             with open(p, "r", encoding="utf-8") as f:
-                return name.replace(".html", ""), f.read()
+                return name.replace(".html", "").replace("_", " ").title(), f.read()
     return None
 
-
 def gerar_relatorio_final():
-    print("[INFO] Montando relatório final...")
+    print("[INFO] Building final report with enhanced interface...")
 
     # -------------------------------------------------------
-    # 1) Carregar MAPAS (clusters + temático) - caminhos corrigidos
+    # 1) Load MAPS (clusters + thematic)
     # -------------------------------------------------------
     mapas = {}
 
-    # possíveis nomes/locais que podem ter sido usados
-    # clusters: pode estar em MAPAS_CLUSTERS_DIR/clusters.html ou MAPAS_CLUSTERS_DIR/clusters/clusters.html (caso aninhado)
     clusters_candidate = _carregar_arquivo_possiveis(
         MAPAS_CLUSTERS_DIR,
         ["clusters.html", "clusters/clusters.html", "clusters_index.html"]
     )
     if clusters_candidate:
-        mapas[clusters_candidate[0]] = clusters_candidate[1]
+        mapas["Clusters (Groupings)"] = clusters_candidate[1]
     else:
-        print(f"[WARN] Mapa de clusters não encontrado em {MAPAS_CLUSTERS_DIR}")
+        print(f"[WARN] Cluster map not found in {MAPAS_CLUSTERS_DIR}")
 
-    # temático: pode estar em MAPAS_TEMATICOS_DIR/tematico.html ou mapa_tematico.html
     tematico_candidate = _carregar_arquivo_possiveis(
         MAPAS_TEMATICOS_DIR,
         ["tematico.html", "mapa_tematico.html", "tematico/index.html"]
     )
     if tematico_candidate:
-        mapas[tematico_candidate[0]] = tematico_candidate[1]
+        mapas["Thematic Map"] = tematico_candidate[1]
     else:
-        print(f"[WARN] Mapa temático não encontrado em {MAPAS_TEMATICOS_DIR}")
+        print(f"[WARN] Thematic map not found in {MAPAS_TEMATICOS_DIR}")
 
     # -------------------------------------------------------
-    # 2) Carregar GRÁFICOS DE PREVISÃO
+    # 2) Load PREDICTION CHARTS
     # -------------------------------------------------------
     graficos = {}
     if not GRAFICOS_PREV_DIR.exists():
-        print(f"[WARN] Diretório de gráficos de previsão não encontrado: {GRAFICOS_PREV_DIR}")
+        print(f"[WARN] Prediction charts directory not found: {GRAFICOS_PREV_DIR}")
     else:
         for g in sorted(os.listdir(GRAFICOS_PREV_DIR)):
             if g.endswith(".html"):
-                nome_bairro = g.replace("_previsao.html", "")
+                nome_bairro = g.replace("_previsao.html", "").replace("_", " ")
                 with open(GRAFICOS_PREV_DIR / g, "r", encoding="utf-8") as f:
                     graficos[nome_bairro] = f.read()
 
+    # Reorder to ensure TOTAL is first
+    if "TOTAL" in graficos:
+        graficos = {"TOTAL": graficos["TOTAL"], **{k: v for k, v in graficos.items() if k != "TOTAL"}}
+
     # -------------------------------------------------------
-    # HTML principal
+    # HTML GENERATION (Bootstrap 5)
     # -------------------------------------------------------
-    html = """
-    <html>
-    <head>
-    <title>Relatório GeoCrecheAI</title>
+    
+    # HTML Header
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head>
     <meta charset="UTF-8">
-
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GeoCrecheAI Report</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
     <style>
-    body {
-        font-family: Arial, sans-serif;
-        margin: 20px;
-    }
-    #grafico-container > div, #mapa-container > div {
-        display: none;
-    }
-    .plot-container, .plotly-graph-div {
-        width: 900px !important;
-        height: 550px !important;
-        margin: auto;
-    }
+        body { background-color: #f8f9fa; }
+        .navbar { box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+        .card { box-shadow: 0 4px 6px rgba(0,0,0,.05); border: none; margin-bottom: 2rem; }
+        .card-header { background-color: #fff; border-bottom: 1px solid #eee; font-weight: bold; font-size: 1.1rem; }
+        
+        /* --- MAP HEIGHT ADJUSTMENT --- */
+        iframe { width: 100% !important; height: 1000px !important; border-radius: 4px; border: 1px solid #ddd; }
+        
+        .plotly-graph-div, .plot-container { width: 100% !important; }
+        
+        /* Adjustment for small screens (Mobile) */
+        @media (max-width: 768px) {
+            iframe { height: 600px !important; }
+        }
     </style>
+</head>
+<body>
 
-    <script>
-    function selecionarMapa() {
-        var m = document.getElementById('select-mapa').value;
-        var blocos = document.querySelectorAll('#mapa-container > div');
-        blocos.forEach(b => b.style.display = 'none');
-        if (m) document.getElementById('mapa-' + m).style.display = 'block';
-    }
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="#"><i class="fas fa-map-marked-alt me-2"></i>GeoCrecheAI</a>
+            <span class="navbar-text text-white opacity-75">Final Report</span>
+        </div>
+    </nav>
 
-    function selecionarBairro() {
-        var bairro = document.getElementById('select-bairro').value;
-        var blocos = document.querySelectorAll('#grafico-container > div');
-        blocos.forEach(b => b.style.display = 'none');
-        if (bairro) document.getElementById('graf-' + bairro).style.display = 'block';
-    }
-
-    window.onload = function() {
-        selecionarMapa();
-        selecionarBairro();
-    };
-    </script>
-    </head>
-    <body>
-
-    <h1>Relatório GeoCrecheAI</h1>
-    """
+    <div class="container">
+"""
 
     # -------------------------------------------------------
-    # MAPAS (clusters + temático)
+    # SECTION 1: MAPS
     # -------------------------------------------------------
     html += """
-    <h2>Mapas Principais</h2>
-    <label><b>Selecione o mapa:</b></label>
-    <select id="select-mapa" onchange="selecionarMapa()">
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-globe-americas me-2 text-primary"></i>Spatial Visualization</span>
+                    </div>
+                    <div class="card-body">
     """
 
     if mapas:
+        html += """
+                        <label for="select-mapa" class="form-label text-muted small">Select visualization layer:</label>
+                        <select id="select-mapa" class="form-select mb-3" onchange="selectMap()">
+        """
         primeiro = True
-        for nome_mapa in mapas.keys():
-            if primeiro:
-                html += f'<option value="{nome_mapa}" selected>{nome_mapa}</option>\n'
-                primeiro = False
-            else:
-                html += f'<option value="{nome_mapa}">{nome_mapa}</option>\n'
+        ids_mapas = [] # To store IDs and control JS display
+        for i, nome_mapa in enumerate(mapas.keys()):
+            selected = "selected" if primeiro else ""
+            html += f'<option value="mapa-{i}" {selected}>{nome_mapa}</option>\n'
+            ids_mapas.append(f"mapa-{i}")
+            primeiro = False
+        
+        html += "</select>\n"
+
+        # Map Content
+        html += '<div id="mapa-container">\n'
+        for i, (nome_mapa, conteudo) in enumerate(mapas.items()):
+            display_style = "block" if i == 0 else "none"
+            html += f'<div id="mapa-{i}" class="mapa-item" style="display:{display_style}; width:100%;">\n{conteudo}\n</div>\n'
+        html += '</div>'
+
     else:
-        html += '<option value="">--Nenhum mapa disponível--</option>\n'
+        html += '<div class="alert alert-warning">No maps found in output directories.</div>'
 
     html += """
-    </select>
-
-    <div id="mapa-container">
-    """
-
-    primeiro = True
-    for nome_mapa, conteudo in mapas.items():
-        display = "block" if primeiro else "none"
-        html += f'<div id="mapa-{nome_mapa}" style="display:{display}">\n{conteudo}\n</div>\n'
-        primeiro = False
-
-    html += "</div><hr>"
+                    </div> </div> </div> </div> """
 
     # -------------------------------------------------------
-    # PREVISÕES POR BAIRRO
+    # SECTION 2: CHARTS
     # -------------------------------------------------------
     html += """
-    <h2>Previsões por Bairro</h2>
-    <label><b>Selecione um bairro:</b></label>
-    <select id="select-bairro" onchange="selecionarBairro()">
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-chart-line me-2 text-success"></i>Demand Forecasts (ARIMA)
+                    </div>
+                    <div class="card-body">
     """
 
     if graficos:
+        html += """
+                        <label for="select-bairro" class="form-label text-muted small">Select Neighborhood/Region:</label>
+                        <select id="select-bairro" class="form-select mb-3" onchange="selectNeighborhood()">
+        """
         primeiro = True
-        for bairro in graficos.keys():
-            if primeiro:
-                html += f'<option value="{bairro}" selected>{bairro}</option>\n'
-                primeiro = False
-            else:
-                html += f'<option value="{bairro}">{bairro}</option>\n'
+        ids_graficos = []
+        for i, bairro in enumerate(graficos.keys()):
+            selected = "selected" if primeiro else ""
+            html += f'<option value="graf-{i}" {selected}>{bairro}</option>\n'
+            ids_graficos.append(f"graf-{i}")
+            primeiro = False
+        
+        html += "</select>\n"
+
+        # Chart Content
+        html += '<div id="grafico-container">\n'
+        for i, (bairro, conteudo) in enumerate(graficos.items()):
+            display_style = "block" if i == 0 else "none"
+            # overflow-x style helps if the chart is too wide
+            html += f'<div id="graf-{i}" class="grafico-item" style="display:{display_style}; overflow-x: hidden;">\n{conteudo}\n</div>\n'
+        html += '</div>'
+    
     else:
-        html += '<option value="">--Nenhum gráfico disponível--</option>\n'
+        html += '<div class="alert alert-secondary">No prediction charts generated.</div>'
 
     html += """
-    </select>
-    <hr><br>
+                    </div> </div> </div> </div> <footer class="text-center text-muted small py-4">
+            Automatically generated by GeoCrecheAI &bull; <span id="data-geracao"></span>
+        </footer>
 
-    <div id="grafico-container">
-    """
+    </div> <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Insert current date in footer
+        document.getElementById('data-geracao').innerText = new Date().toLocaleDateString('en-US');
 
-    primeiro = True
-    for bairro, conteudo in graficos.items():
-        display = "block" if primeiro else "none"
-        html += f'<div id="graf-{bairro}" style="display:{display}">\n{conteudo}\n</div>\n'
-        primeiro = False
+        function selectMap() {
+            var selectedId = document.getElementById('select-mapa').value;
+            var items = document.querySelectorAll('.mapa-item');
+            
+            items.forEach(function(el) {
+                el.style.display = 'none';
+            });
+            
+            var target = document.getElementById(selectedId);
+            if(target) {
+                target.style.display = 'block';
+                // Trigger window resize event to force Plotly/Folium to redraw correctly inside new container
+                window.dispatchEvent(new Event('resize'));
+            }
+        }
 
-    html += """
-    </div>
-
-    </body>
-    </html>
-    """
+        function selectNeighborhood() {
+            var selectedId = document.getElementById('select-bairro').value;
+            var items = document.querySelectorAll('.grafico-item');
+            
+            items.forEach(function(el) {
+                el.style.display = 'none';
+            });
+            
+            var target = document.getElementById(selectedId);
+            if(target) {
+                target.style.display = 'block';
+                window.dispatchEvent(new Event('resize'));
+            }
+        }
+    </script>
+</body>
+</html>
+"""
 
     # -------------------------------------------------------
-    # Salvar
+    # Save
     # -------------------------------------------------------
-    with open(OUTPUT_RELATORIO, "w", encoding="utf-8") as f:
-        f.write(html)
-
-    print(f"[OK] Relatório final gerado em: {OUTPUT_RELATORIO}")
-
+    try:
+        with open(OUTPUT_RELATORIO, "w", encoding="utf-8") as f:
+            f.write(html)
+        print(f"[OK] Final report (Modern Interface) generated at: {OUTPUT_RELATORIO}")
+    except Exception as e:
+        print(f"[ERROR] Failed to save report: {e}")
 
 if __name__ == "__main__":
     gerar_relatorio_final()

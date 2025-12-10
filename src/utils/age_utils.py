@@ -9,7 +9,7 @@ def calcular_idade_meses(dum, data_ref_dt):
     except Exception:
         return None
     delta = data_ref_dt - dum_dt
-    return int(delta.days // 30)
+    return max(0, int(delta.days // 30) - 9)
 
 def faixa_etaria(idade_meses):
     if idade_meses is None or idade_meses < 0:
