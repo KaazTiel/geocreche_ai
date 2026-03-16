@@ -127,7 +127,7 @@ async def gerar_relatorio_api(request: RelatorioRequest):
         G = carregar_grafo_osm(poligono)
         
         # Removido o slider de CPU, fixando um valor seguro para servidores cloud
-        df_maes = calcular_creche_mais_proxima(G, maes_gdf, creches_gdf, num_processos=2)
+        df_maes = calcular_creche_mais_proxima(G, maes_gdf, creches_gdf, num_processos=1)
         
         path_maes = config.MAES_SAIDA
         os.makedirs(os.path.dirname(path_maes), exist_ok=True)
