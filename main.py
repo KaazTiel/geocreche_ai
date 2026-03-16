@@ -26,7 +26,20 @@ from src.reporting.mapas_cluster import gerar_mapa_clusters, gerar_mapa_tematico
 from src.reporting.plots_previsao import gerar_previsoes_bairros
 from src.reporting.report_builder import gerar_relatorio_final
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="GeoCreche AI API")
+
+# Configuração do CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Em produção, substitua pelo IP/URL do seu front
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 
 # Modelos de entrada para substituir a Sidebar do Streamlit
 class DBConfig(BaseModel):
@@ -65,6 +78,35 @@ def carregar_dados_do_banco(db_params: dict, query_config: dict):
         return df
     except Exception as e:
         raise Exception(f"Erro ao conectar ao banco: {str(e)}")
+
+@app.post("/get-schema")
+def get_schema(params: DBConfig):
+    try:
+        conn = psycopg2.connect(
+            host=params.host,
+            port=params.port,
+            database=params.dbname,
+            user=params.user,
+            password=params.password,
+            connect_timeout=5 # Timeout curto para não travar a API
+        )
+        cursor = conn.cursor()
+
+        # 1. Buscar Tabelas
+        cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+        tables = [row[0] for row in cursor.fetchall()]
+
+        # 2. Buscar Colunas (de todas as tabelas para facilitar o cache no front)
+        schema_info = {}
+        for table in tables:
+            cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (table,))
+            schema_info[table] = [row[0] for row in cursor.fetchall()]
+
+        conn.close()
+        return {"status": "success", "schema": schema_info}
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/gerar_relatorio", response_class=HTMLResponse)
 async def gerar_relatorio_api(request: RelatorioRequest):
