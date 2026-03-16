@@ -54,4 +54,3 @@ src/run_benchmark.ps1
 benchmark_stages.csv
 repositorio.json
 repo_json.py
-Dockerfile
