@@ -107,7 +107,7 @@ def gerar_mapa_clusters(df_maes: pd.DataFrame, df_creches: pd.DataFrame) -> str:
         # ... resto do código
     )
     # Ao converter para HTML, adicione responsive=True
-    return fig.to_html(full_html=False, include_plotlyjs="cdn", responsive=True)
+    return fig.to_html(full_html=False, include_plotlyjs="cdn")
 
 
 # ======================================================
@@ -179,4 +179,4 @@ def gerar_mapa_tematico(df_maes: pd.DataFrame,
         # ... resto do código
     )
     # Ao converter para HTML, adicione responsive=True
-    return fig.to_html(full_html=False, include_plotlyjs="cdn", responsive=True)
+    return fig.to_html(full_html=False, include_plotlyjs="cdn")
