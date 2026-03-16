@@ -45,3 +45,13 @@ Thumbs.db
 .DS_Store
 
 db_settings.json
+
+# -------------------------
+# Arquivos/scripts auxiliares
+# -------------------------
+src/benchmark.py
+src/run_benchmark.ps1
+benchmark_stages.csv
+repositorio.json
+repo_json.py
+Dockerfile
