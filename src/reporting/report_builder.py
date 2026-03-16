@@ -83,7 +83,14 @@ def gerar_relatorio_final():
         .card-header { background-color: #fff; border-bottom: 1px solid #eee; font-weight: bold; font-size: 1.1rem; }
         
         /* --- MAP HEIGHT ADJUSTMENT --- */
-        iframe { width: 100% !important; height: 1000px !important; border-radius: 4px; border: 1px solid #ddd; }
+        iframe { 
+            width: 100% !important; 
+            aspect-ratio: 16 / 9; /* Mantém a proporção de cinema, ideal para mapas */
+            height: auto !important; 
+            min-height: 500px;
+            border-radius: 8px; 
+            border: 1px solid #ddd; 
+        }
         
         .plotly-graph-div, .plot-container { width: 100% !important; }
         

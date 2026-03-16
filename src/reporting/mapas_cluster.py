@@ -100,18 +100,14 @@ def gerar_mapa_clusters(df_maes: pd.DataFrame, df_creches: pd.DataFrame) -> str:
     )
 
     fig.update_layout(
-        title="Distance Priority Clusters",
-        mapbox_accesstoken=MAPBOX_TOKEN,
-        width=1000,   # Largura fixa em pixels
-        height=800,   # Altura fixa em pixels
-        mapbox=dict(
-            center=dict(lat=df_maes.lat.mean(), lon=df_maes.lon.mean()),
-            zoom=12
-        )
-        
+        autosize=True,  # Permite que o gráfico preencha o container
+        height=None,    # Remove a altura fixa
+        width=None,     # Remove a largura fixa
+        margin=dict(l=0, r=0, t=40, b=0), # Aproveita melhor o espaço
+        # ... resto do código
     )
-
-    return fig.to_html(full_html=False, include_plotlyjs="cdn")
+    # Ao converter para HTML, adicione responsive=True
+    return fig.to_html(full_html=False, include_plotlyjs="cdn", responsive=True)
 
 
 # ======================================================
@@ -176,15 +172,11 @@ def gerar_mapa_tematico(df_maes: pd.DataFrame,
     )
 
     fig.update_layout(
-        mapbox_style="carto-positron",
-        mapbox_accesstoken=MAPBOX_TOKEN,
-        mapbox=dict(
-            center=dict(lat=df_maes.lat.mean(), lon=df_maes.lon.mean()),
-            zoom=12
-        ),
-        width=1000,   # Largura fixa em pixels
-        height=800,   # Altura fixa em pixels
-        title="Thematic Map – Average Distance by Neighborhood"
+        autosize=True,  # Permite que o gráfico preencha o container
+        height=None,    # Remove a altura fixa
+        width=None,     # Remove a largura fixa
+        margin=dict(l=0, r=0, t=40, b=0), # Aproveita melhor o espaço
+        # ... resto do código
     )
-
-    return fig.to_html(full_html=False, include_plotlyjs=False)
+    # Ao converter para HTML, adicione responsive=True
+    return fig.to_html(full_html=False, include_plotlyjs="cdn", responsive=True)
